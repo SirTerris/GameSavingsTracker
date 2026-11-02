@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Game Savings Tracker</title>
+<style>
+:root{font-family:system-ui,Arial;background:#111827;color:#f9fafb}*{box-sizing:border-box}body{max-width:850px;margin:25px auto;padding:0 15px}h1{margin-bottom:4px}p,small{color:#aab4c6}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.card{background:#1f2937;border:1px solid #374151;border-radius:12px;padding:16px;margin:12px 0}.number{font-size:27px;font-weight:700}input,select{background:#111827;color:white;border:1px solid #4b5563;padding:10px;border-radius:7px;width:100%;margin:5px 0 10px}button{background:#6366f1;color:white;border:0;border-radius:7px;padding:10px 14px;cursor:pointer;margin:4px 4px 4px 0}button.alt{background:#374151}.goal{border-top:1px solid #4b5563;padding:13px 0}.bar{background:#374151;height:10px;border-radius:10px;overflow:hidden;margin:10px 0}.fill{background:#34d399;height:100%}.error{color:#fca5a5}.muted{color:#aab4c6}@media(max-width:450px){.grid{grid-template-columns:1fr}}
+</style></head><body>
+<h1>Game Savings Tracker</h1><p>Track earned Coins and Credits, and allocate them to multiple savings goals. Saved locally in this browser.</p>
+<div class="grid"><div class="card"><small>Total Coins Earned</small><div class="number" id="coins">0</div><small id="freecoins"></small></div><div class="card"><small>Total Credits Earned</small><div class="number" id="credits">0</div><small id="freecredits"></small></div></div>
+<section class="card"><h2>Add earnings</h2><div class="grid"><div><label>Amount</label><input type="number" min="1" step="1" id="amount" placeholder="2500"></div><div><label>Currency</label><select id="currency"><option value="coins">Coins</option><option value="credits">Credits</option></select></div></div><label>Allocate to</label><select id="earnGoal"></select><button id="add">Add earnings</button><p class="error" id="earnError"></p></section>
+<section class="card"><h2>Create savings goal</h2><label>Goal name</label><input id="name" placeholder="New horse"><div class="grid"><div><label>Target amount</label><input type="number" min="1" step="1" id="target"></div><div><label>Currency</label><select id="goalCurrency"><option value="coins">Coins</option><option value="credits">Credits</option></select></div></div><button id="create">Create goal</button><p class="error" id="goalError"></p></section>
+<section class="card"><h2>Savings goals</h2><div id="goals"></div></section>
+<section class="card"><h2>Allocate existing earnings</h2><div class="grid"><div><label>Amount</label><input id="allocateAmount" type="number" min="1" step="1"></div><div><label>Goal</label><select id="allocateGoal"></select></div></div><button id="allocate">Move to goal</button><p class="error" id="allocateError"></p></section>
+<section class="card"><h2>Recent activity</h2><div id="history"></div><button class="alt" id="undo">Undo last action</button></section>
+<section class="card"><button class="alt" id="export">Download backup</button><button class="alt" id="import">Import backup</button><input id="file" type="file" accept=".json" style="display:none"><p><small>Tip: Backups let you transfer your progress to another browser or computer.</small></p></section>
+<script>
+const $=id=>document.getElementById(id), key='gameSavingsTrackerStandaloneV1';
+let data={goals:[],entries:[],history:[]}, undo=[];
+try{let s=JSON.parse(localStorage.getItem(key));if(s&&Array.isArray(s.goals)&&Array.isArray(s.entries)&&Array.isArray(s.history))data=s}catch(e){}
+const fmt=n=>Number(n||0).toLocaleString('en-AU');
+const id=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
+const valid=v=>Number.isSafeInteger(Number(v))&&Number(v)>0?Number(v):null;
+const total=c=>data.entries.filter(e=>e.currency===c).reduce((s,e)=>s+e.amount,0);
+const free=c=>total(c)-data.goals.filter(g=>g.currency===c).reduce((s,g)=>s+g.saved,0);
+function save(){try{localStorage.setItem(key,JSON.stringify(data))}catch(e){alert('Browser storage unavailable. Use Download backup to preserve your progress.')}}
+function snap(){undo.push(JSON.stringify(data));if(undo.length>30)undo.shift()}
+function log(s){data.history.unshift({s,date:new Date().toLocaleString()});data.history=data.history.slice(0,100)}
+function render(){
+$('coins').textContent=fmt(total('coins'));$('credits').textContent=fmt(total('credits'));
+$('freecoins').textContent=fmt(free('coins'))+' unallocated';$('freecredits').textContent=fmt(free('credits'))+' unallocated';
+for(const select of [$('earnGoal'),$('allocateGoal')]){const old=select.value;select.replaceChildren(new Option(select.id==='earnGoal'?'Unallocated balance':'Choose goal',''));for(const g of data.goals)select.add(new Option(g.name+' ('+g.currency+')',g.id));select.value=data.goals.some(g=>g.id===old)?old:''}
+$('goals').replaceChildren();if(!data.goals.length)$('goals').textContent='No goals yet.';
+for(const g of data.goals){let el=document.createElement('div');el.className='goal';
+let heading=document.createElement('strong');heading.textContent=g.name;
+let stats=document.createElement('div');stats.textContent=fmt(g.saved)+' / '+fmt(g.target)+' '+g.currency;
+let bar=document.createElement('div');bar.className='bar';let fill=document.createElement('div');fill.className='fill';fill.style.width=Math.min(100,g.saved/g.target*100)+'%';bar.append(fill);
+let info=document.createElement('small');info.textContent=(g.saved>=g.target?'Goal reached!':fmt(g.target-g.saved)+' remaining')+' · '+Math.min(100,g.saved/g.target*100).toFixed(1)+'%';
+let buttons=document.createElement('div');
+function btn(label,fn){let b=document.createElement('button');b.className='alt';b.textContent=label;b.onclick=fn;buttons.append(b)}
+btn('Return funds',()=>{let n=prompt('Amount to return to unallocated balance (maximum '+fmt(g.saved)+')');if(n===null)return;n=valid(n);if(!n||n>g.saved)return alert('Invalid amount');snap();g.saved-=n;log('Returned '+fmt(n)+' '+g.currency+' from '+g.name);save();render()});
+btn('Edit',()=>{let name=prompt('Goal name',g.name);if(name===null)return;let target=prompt('Target amount',g.target);if(target===null)return;let n=valid(target);if(!name.trim()||!n)return alert('Invalid name or target');snap();g.name=name.trim();g.target=n;log('Edited goal '+g.name);save();render()});
+btn('Delete',()=>{if(!confirm('Delete '+g.name+'? Saved funds return to unallocated balance.'))return;snap();data.goals=data.goals.filter(x=>x.id!==g.id);log('Deleted goal '+g.name);save();render()});
+el.append(heading,stats,bar,info,buttons);$('goals').append(el)}
+$('history').replaceChildren();for(const h of data.history.slice(0,10)){let p=document.createElement('p');p.textContent=h.s+' — '+h.date;$('history').append(p)}if(!data.history.length)$('history').textContent='No activity yet.';$('undo').disabled=!undo.length;
+}
+$('create').onclick=()=>{let name=$('name').value.trim(),n=valid($('target').value);$('goalError').textContent='';if(!name||!n)return $('goalError').textContent='Enter a goal name and positive whole-number target.';snap();data.goals.push({id:id(),name,target:n,currency:$('goalCurrency').value,saved:0});log('Created goal '+name);$('name').value='';$('target').value='';save();render()};
+$('add').onclick=()=>{let n=valid($('amount').value),c=$('currency').value,g=data.goals.find(x=>x.id===$('earnGoal').value);$('earnError').textContent='';if(!n)return $('earnError').textContent='Enter a positive whole number.';if(g&&g.currency!==c)return $('earnError').textContent='Currency must match the goal.';snap();data.entries.push({id:id(),amount:n,currency:c});if(g)g.saved+=n;log('Earned '+fmt(n)+' '+c+(g?' → '+g.name:''));$('amount').value='';save();render()};
+$('earnGoal').onchange=()=>{let g=data.goals.find(x=>x.id===$('earnGoal').value);if(g)$('currency').value=g.currency};
+$('currency').onchange=()=>{let g=data.goals.find(x=>x.id===$('earnGoal').value);if(g&&g.currency!==$('currency').value)$('earnGoal').value=''};
+$('allocate').onclick=()=>{let n=valid($('allocateAmount').value),g=data.goals.find(x=>x.id===$('allocateGoal').value);$('allocateError').textContent='';if(!n||!g)return $('allocateError').textContent='Select a goal and positive amount.';if(n>free(g.currency))return $('allocateError').textContent='Not enough unallocated '+g.currency+'.';snap();g.saved+=n;log('Allocated '+fmt(n)+' '+g.currency+' to '+g.name);$('allocateAmount').value='';save();render()};
+$('undo').onclick=()=>{if(!undo.length)return;data=JSON.parse(undo.pop());save();render()};
+$('export').onclick=()=>{let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='game-savings-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
+$('import').onclick=()=>$('file').click();
+$('file').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let d=JSON.parse(await f.text());if(!Array.isArray(d.goals)||!Array.isArray(d.entries)||!Array.isArray(d.history))throw Error();if(confirm('Replace current progress with this backup?')){snap();data=d;save();render()}}catch(e){alert('Invalid backup file')}e.target.value=''};
+render();
+</script></body></html>
